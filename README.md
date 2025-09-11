@@ -13,5 +13,5 @@ A majority of people who play chess prefer to play chess online. According to th
 
 ## Approach 
 
-Technology Stack: OpenCV, Keras, Python, 
+Technology Stack: OpenCV, Keras, Python, Scikit-Learn
 
