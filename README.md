@@ -1,34 +1,61 @@
 # Board2Board
 
 ## Welcome to Board2Board
-Board2Board uses the capabilities of Computer Vision and Deep Learning to convert a physical chessboard into a Forsyth-Edwards Notation (FEN) with a 94% accuracy. FEN is a line-by-line description of a chessboard (piece+position), which can then be feed into many preexisting services and website to recreate the board into a computer space.
+**Board2Board** leverages Computer Vision and Deep Learning to convert a physical chessboard into Forsyth-Edwards Notation (FEN) with **94% accuracy**.  
+
+FEN is a standardized, line-by-line description of a chessboard (piece + position), which can be fed into many existing platforms and services to recreate the board digitally. This allows over-the-board (OTB) chess positions to be seamlessly transferred into the online environment.
+
+---
 
 ## Goal
-A majority of people who play chess prefer to play chess online. According to the Chess.com survery in 2020, about 70% of their user base described themselves as casual players, and among them, about 50% said that they only play online. There could be due to multiple factors. 
+A majority of chess players today prefer to play online. According to a **2020 Chess.com survey**, about **70%** of their user base identified as casual players, and among them, roughly **50% reported that they only play online**.  
 
-1. Players have easy access to built-in evaluation and analysis tools, especially on platforms like Chess.com. There also can get access to coaching, practice AI bots and finding opponenets is very easy. 
-2. In order to have the functionalities for OTB chess players, they need to invest in an expensive digital board that would can connected to a computer and can send infornmation about the board to the computer digitally. While this is very sound approach and it is used in broadcasting of professional chess tournments, it is impractial for a casual player as the boards cost upwards of $100.
+Several factors drive this trend:  
 
-#### Board2Board seek to bridge this gap and eliminate the need for a expensive digital board by using the capability of AI to convert a physical chessboard into a digital board, which will give the user access to all the powerful chess utility tools available online. 
+1. **Accessibility of tools** – Online platforms provide built-in evaluation, analysis, coaching, and practice against AI bots. Finding opponents is fast and effortless.  
+2. **High cost of OTB digitization** – To enable similar functionalities for OTB play, users need a digital chessboard capable of transmitting board states to a computer. While this approach is used in professional tournament broadcasting, these boards cost upwards of **$100**, making them impractical for casual players.  
 
-## Approach 
+**Board2Board aims to bridge this gap** by eliminating the need for expensive hardware. Instead, it uses AI to convert a physical chessboard into a digital one, giving OTB players access to the same powerful tools enjoyed by online players.
 
-Technology Stack: OpenCV, Keras, Python, Scikit-Learn, RestNet50
+---
 
-The approach for computer vision pipeline is a reimaginged version of the appraoch taken in the Medium article by ... (name), but some additional features were added to give the pipeline more robustness
-and adaptability to different types of images (different lightings, conditions, etc). The pipeline described starts with OpenCV's GaussianBlur (smoothing), Canny (edges detection), and
-Houghline (detecting lines). The lines are sorted into vertical and horizontal lines. The intesections of the two types of lines are calculated and clustered using Sci-kit Learn's Agglomerate Clustering, which 
-clusters, intersections within a certain thresholds as one cluster or one intersection. 
+## Approach
 
-However during implementing, a lot of problems came to light with the pipeline such as lines outside the board were being detected and throwing up the whole process. 
+**Technology Stack:** OpenCV, Keras, Python, Scikit-Learn, ResNet50  
 
+The computer vision pipeline is a **reimagined and extended version** of an approach outlined in a [Medium article by <Author’s Name>]. Additional features were added for greater robustness and adaptability across varying lighting conditions and image qualities.  
 
-## Outcome
+**Pipeline Overview:**  
+1. **Preprocessing** – Apply OpenCV’s `GaussianBlur` for smoothing, `Canny` for edge detection, and `HoughLines` to detect lines.  
+2. **Line Sorting** – Separate detected lines into vertical and horizontal categories.  
+3. **Intersection Detection** – Compute intersections between vertical and horizontal lines.  
+4. **Clustering** – Use Sci-Kit Learn’s Agglomerative Clustering to merge intersections within a given threshold, reducing noise and identifying true grid points.  
 
-The computer vision pipeline is able to slice any grid into 9 rows x 9 columns (forming a 8x8 digital board). The thresholds ResNet50 model was able to predict the images 
+---
+
+## Issues & Fixes
+
+During implementation, several issues were encountered and addressed:  
+
+1. **Extraneous Line Detection**  
+   - *Problem:* `HoughLines` often detected lines outside the chessboard, disrupting the pipeline.  
+   - *Fix:* Images are first manually cropped, and the pipeline was split into **Preprocessing** and **Secondary Processing** stages.  
+
+2. **Two-Stage Processing**  
+   - **Preprocessing Stage:**  
+     - Detects the four outer corners of the board using the pipeline (`GaussianBlur + Canny + HoughLines + Intersections + Clustering`).  
+     - The image is then cropped, perspective-transformed, and warped.  
+   - **Secondary Processing Stage:**  
+     - Runs the same pipeline again on the warped board to detect internal grid lines.  
+     - Final intersections are sorted into an accurate 9×9 grid representing the chessboard squares.  
+
+3. **Error Correction**  
+   - *Problem:* The dataset was custom-built and limited in size, with only about 1,200 training images. While the model achieved **94% accuracy**, it remained prone to occasional misclassifications.  
+   - *Fix:* Introduced a user-input correction feature at the end of the classification process, allowing players to manually fix errors before the final FEN is generated.  
+
+---
 
 ## How to Use
-
-### Download trained models from the shared google drive. 
-
- 
+1. Download the trained models from the shared Google Drive.  
+2. Run the provided preprocessing and recognition scripts on an image of a chessboard.  
+3. The system outputs the board state in **FEN notation**, ready for use on any chess platform.  
