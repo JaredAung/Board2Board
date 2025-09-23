@@ -29,7 +29,7 @@ The computer vision pipeline is a **reimagined and extended version** of an appr
 1. **Preprocessing** – Apply OpenCV’s `GaussianBlur` for smoothing, `Canny` for edge detection, and `HoughLines` to detect lines.  
 2. **Line Sorting** – Separate detected lines into vertical and horizontal categories.  
 3. **Intersection Detection** – Compute intersections between vertical and horizontal lines.  
-4. **Clustering** – Use Sci-Kit Learn’s Agglomerative Clustering to merge intersections within a given threshold, reducing noise and identifying true grid points.  
+4. **Clustering** – Use Scikit-Learn’s Agglomerative Clustering to merge intersections within a given threshold, reducing noise and identifying true grid points.  
 
 ---
 
@@ -48,6 +48,7 @@ During implementation, several issues were encountered and addressed:
    - **Secondary Processing Stage:**  
      - Runs the same pipeline again on the warped board to detect internal grid lines.  
      - Final intersections are sorted into an accurate 9×9 grid representing the chessboard squares.  
+   - *Effect:* Four thresholds must be managed (primary HoughLines, primary clustering, secondary HoughLines, secondary clustering).  
 
 3. **Error Correction**  
    - *Problem:* The dataset was custom-built and limited in size, with only about 1,200 training images. While the model achieved **94% accuracy**, it remained prone to occasional misclassifications.  
@@ -56,6 +57,55 @@ During implementation, several issues were encountered and addressed:
 ---
 
 ## How to Use
-1. Download the trained models from the shared Google Drive.  
-2. Run the provided preprocessing and recognition scripts on an image of a chessboard.  
-3. The system outputs the board state in **FEN notation**, ready for use on any chess platform.  
+
+There are three main scripts in the repository. All use the same OpenCV pipeline, but their purposes differ:  
+
+### `generate_training_data.py`  
+- Extracts training images (cropped squares) and generates four CSV files containing image features and threshold values for processing.  
+- Thresholds are initially set and managed by the user.  
+- After user approval, 64 cropped images are saved and corresponding features/thresholds are appended to their CSVs.  
+- Images must then be **manually sorted into labeled folders** (e.g., `black-knight/`, `white-king/`, `empty/`).  
+- For best results:  
+  - Ensure each square contains the full piece (not cropped out).  
+  - Provide at least 100 images per class.  
+  - Keep class counts balanced; otherwise, the model may bias predictions toward overrepresented classes.  
+
+### `trainer.ipynb`  
+- Run in Google Colab (or another preferred training environment).  
+- Trains two sets of models:  
+  - **ResNet50** for piece classification using the cropped square images.  
+  - **Keras Linear Regression models** for predicting the four pipeline thresholds using the CSV files.  
+- On GPU, training is significantly faster.  
+- Outputs saved trained models for later use.  
+
+### `classifier.py`  
+- Tests the pipeline and generates FEN output.  
+1. Download trained models from Google Drive (or adjust file paths if stored locally).  
+2. Run `classifier.py` on a test image of a chessboard (provided in the `testing/` folder).  
+3. The Linear Regression models predict the four thresholds; user approval is requested at each stage.  
+4. After final approval, cropped images are classified by the ResNet50 model.  
+5. The system displays piece predictions for each square and allows manual corrections via a simple input prompt.  
+6. Once confirmed, the board state is constructed in **FEN notation**, which can be copied directly into chess engines (e.g., [Chess.com Analysis](https://www.chess.com/analysis)).  
+
+---
+
+## Results & Future Work
+
+### Results
+- Achieved **94% classification accuracy** on a custom dataset of ~1,200 images across all chess pieces and empty squares.  
+- Successfully generated valid FEN notations for OTB chessboard images.  
+- Implemented a **hybrid automation + user-correction pipeline**, reducing the impact of misclassifications.  
+
+### Limitations
+- Dataset size was relatively small and manually curated, leading to occasional class imbalance.  
+- Performance can degrade under poor lighting conditions or with unusual chess piece designs.  
+- Manual threshold adjustment is still required (with model predictions as guidance).  
+
+### Future Work
+- Expand dataset with **tens of thousands of labeled images** for better generalization.  
+- Improve pipeline robustness with **deep-learning–based board detection** (instead of HoughLines).  
+- Implement **automatic error correction** using probabilistic validation rules (e.g., both sides must have exactly one king).  
+- Optimize for **mobile deployment** so casual players can snap a photo of their board and instantly get a digital reconstruction.  
+- Explore integration with platforms like **Lichess or Chess.com** via API for seamless import of positions.  
+
+---
