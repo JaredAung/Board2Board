@@ -21,7 +21,7 @@ Several factors drive this trend:
 
 ## Approach
 
-**Technology Stack:** OpenCV, Keras, Python, Scikit-Learn, ResNet50  
+**Technology Stack:** OpenCV, Keras, Python, Scikit-Learn, ResNet50, Python-Chess, Scikit-Image, Tensorflow, SciPy, Joblib, Jupyer Notebook  
 
 The computer vision pipeline is a **reimagined and extended version** of an approach outlined in a [Medium article by <Author’s Name>]. Additional features were added for greater robustness and adaptability across varying lighting conditions and image qualities.  
 
