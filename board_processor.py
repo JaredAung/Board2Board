@@ -5,6 +5,7 @@ from collections import defaultdict
 import os
 from skimage.measure import shannon_entropy
 from scipy.spatial.distance import pdist
+from image_processor import preprocessor,secondary_processor
 
 param_states = [
     {"name": "hough_threshold", "value": 150},  # Initial threshold for Hough Transform
@@ -53,314 +54,7 @@ secondary_clustering_data = {
         "cluster_threshold": 0
     }
 
-
-def compute_intersection(rho1, theta1, rho2, theta2):
-    a1, b1 = np.cos(theta1), np.sin(theta1)
-    a2, b2 = np.cos(theta2), np.sin(theta2)
-    A = np.array([[a1, b1], [a2, b2]])
-    B = np.array([[rho1], [rho2]])
-    if np.abs(np.linalg.det(A)) < 1e-10:
-        return None
-    intersection = np.linalg.solve(A, B)
-    return tuple(np.round(intersection.flatten()).astype(int))
-
-def cluster_points(points, threshold=40):
-    if not points:
-        return []
-    points_np = np.array(points)
-    clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=threshold).fit(points_np)
-    clustered = defaultdict(list)
-    for label, pt in zip(clustering.labels_, points):
-        clustered[label].append(pt)
-    return [tuple(np.mean(pts, axis=0).astype(int)) for pts in clustered.values()]      
-
-def find_board_corner(points):
-    sums = points[:, 0] + points[:, 1]
-    diffs = points[:, 0] - points[:, 1]
-
-    tl = points[np.argmin(sums)]
-    br = points[np.argmax(sums)]
-    tr = points[np.argmin(diffs)]
-    bl = points[np.argmax(diffs)]
-
-    src_points = np.float32([tl, tr, br, bl])
-    return src_points
-
-def sort_into_grid(points,rows=9,cols =9):
-    points = np.array(points)
-    ys = np.array([pt[1] for pt in points])
-    y_centers = np.sort(np.unique(np.round(ys / 50) * 50))
-
-    grid = []
-    for y in y_centers:
-        row_points = [pt for pt in points if abs(pt[1] - y) < 30]
-        row = sorted(row_points, key=lambda pt: pt[0])
-        if len(row) == 9:
-            grid.append(row[:cols])
-    return grid
-
-def preprocess_image(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 1) # could be 1 
-    edges = cv2.Canny(blurred, 50, 150, apertureSize=3)
-
-    # Mean and std intensity
-    primary_hough_training_data["mean_intensity"] = np.mean(edges)
-    primary_hough_training_data["std_intensity"] = np.std(edges)
-
-    #Edge density
-    primary_hough_training_data["edge_density"] = np.sum(edges > 0) / (edges.shape[0] * edges.shape[1])
-
-    #Gradient magnitue
-    sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    gradient_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
-    primary_hough_training_data["gradient_mean"] = np.mean(gradient_magnitude)
-    primary_hough_training_data["gradient_std"] = np.std(gradient_magnitude)
-
-    #Entropy
-    primary_hough_training_data["entropy"] = shannon_entropy(gray)
-
-    #Aspect_ratio
-    primary_hough_training_data["aspect_ratio"] = gray.shape[1] / gray.shape[0]
-
-    #cv2.imshow('Primary Edges', edges) # see edges
-
-    lines = cv2.HoughLines(edges, 1, np.pi / 180, param_states[2]["value"]) # 100 - 150 
-    if lines is None:
-        print("No lines found")
-        exit()
-    primary_hough_training_data["hough_threshold"] = param_states[2]["value"]
-    img2 = image.copy()
-    for rho_theta in lines:
-        rho, theta = rho_theta[0]
-        a = np.cos(theta)
-        b = np.sin(theta)
-        x0 = a * rho
-        y0 = b * rho
-        x1 = int(x0 + 1000 * (-b))
-        y1 = int(y0 + 1000 * (a))
-        x2 = int(x0 - 1000 * (-b))
-        y2 = int(y0 - 1000 * (a))
-        cv2.line(img2, (x1, y1), (x2, y2), (0, 0, 255), 2)
-    cv2.imshow("Primary Hough Lines", img2)
-
-    vertical_lines = []
-    horizontal_lines = []
-    
-    for rho_theta in lines:
-        rho, theta = rho_theta[0]
-        angle = np.degrees(theta)
-        if abs(angle) < 30 or abs(angle - 180) < 30: #maybe 40
-            vertical_lines.append((rho, theta))
-        elif abs(angle - 90) < 30:
-            horizontal_lines.append((rho, theta))
-
-    intersections = []
-    img3 = image.copy()
-
-    for vrho, vtheta in vertical_lines:
-        for hrho, htheta in horizontal_lines:
-            pt = compute_intersection(vrho, vtheta, hrho, htheta)
-            if pt is not None:
-                x, y = pt
-                if 0 <= x < image.shape[1] and 0 <= y < image.shape[0]:
-                    intersections.append((x, y))
-                    
-
-    clustered_pts = cluster_points(intersections, threshold=param_states[3]["value"]) #30 -70
-
-    primary_clustering_data["cluster_threshold"] = param_states[3]["value"]
-    points = np.array(intersections)
-    primary_clustering_data["num_points"] = len(points)
-
-    if primary_clustering_data["num_points"] >= 2:
-        distances = pdist(points)
-        primary_clustering_data["mean_distance"] = np.mean(distances)
-        primary_clustering_data["std_distance"] = np.std(distances)
-
-    else:
-        primary_clustering_data["mean_distance"] = 0
-        primary_clustering_data["std_distance"] = 0
-    
-
-    cv2.imshow("Primary Intersections", img3)
-
-    pts = np.array(clustered_pts)
-    src_points = find_board_corner(pts)
-    cv2.circle(img3, tuple(map(int, src_points[0])), 5, (0, 0, 255), -1)    # top-left
-    cv2.circle(img3, tuple(map(int, src_points[1])), 5, (255, 255, 0), -1)    # top-right
-    cv2.circle(img3, tuple(map(int, src_points[2])), 5, (255, 255, 0), -1)    # bottom-right
-    cv2.circle(img3, tuple(map(int, src_points[3])), 5, (255, 255, 0), -1)  # bottom-left
-
-
-    
-    cv2.imshow("Board Corners", img3)
-    return src_points,primary_hough_training_data, primary_clustering_data
-
-def secondary_processing(warped):
-    warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    blurred_warped = cv2.GaussianBlur(warped_gray, (5, 5), 0)
-    edges_warped = cv2.Canny(blurred_warped, 50, 150, apertureSize=3)
-    #cv2.imshow("Warped Edges", edges_warped)
-
-    secondary_hough_training_data["mean_intensity"] = np.mean(edges_warped)
-    secondary_hough_training_data["std_intensity"] = np.std(edges_warped)
-    secondary_hough_training_data["edge_density"] = np.sum(edges_warped > 0) / (edges_warped.shape[0] * edges_warped.shape[1])
-
-    #Gradient
-    sobel_x_warped = cv2.Sobel(warped_gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobel_y_warped = cv2.Sobel(warped_gray, cv2.CV_64F, 0, 1, ksize=3)
-    gradient_magnitude_warped = np.sqrt(sobel_x_warped**2 + sobel_y_warped**2)
-    secondary_hough_training_data["gradient_mean"] = np.mean(gradient_magnitude_warped)
-    secondary_hough_training_data["gradient_std"] = np.std(gradient_magnitude_warped)
-
-    #Entropy
-    secondary_hough_training_data["entropy"] = shannon_entropy(warped_gray)
-
-    #Aspect ratio
-    secondary_hough_training_data["aspect_ratio"] = warped_gray.shape[1] / warped_gray.shape[0]
-
-
-    lines_warped = cv2.HoughLines(edges_warped, 1, np.pi / 180, param_states[0]["value"]) # 150 - 220
-    secondary_hough_training_data["hough_threshold"] = param_states[0]["value"]
-    img4 = warped.copy()
-    if lines_warped is None:
-        print("No lines found in warped image")
-        exit()
-    
-    for rho_theta in lines_warped:
-        rho, theta = rho_theta[0]
-        a = np.cos(theta)
-        b = np.sin(theta)
-        x0 = a * rho
-        y0 = b * rho
-        x1 = int(x0 + 1000 * (-b))
-        y1 = int(y0 + 1000 * (a))
-        x2 = int(x0 - 1000 * (-b))
-        y2 = int(y0 - 1000 * (a))
-        cv2.line(img4, (x1, y1), (x2, y2), (0, 0, 255), 2)
-    cv2.imshow("Secondary Detected Lines 1", img4)
-
-    wrapped_vertical_lines = []
-    wrapped_horizontal_lines = []
-
-    for rho_theta in lines_warped:
-        rho, theta = rho_theta[0]
-        angle = np.degrees(theta)
-        if abs(angle) < 30 or abs(angle - 180) < 30:
-            wrapped_vertical_lines.append((rho, theta))
-        elif abs(angle - 90) < 30:
-            wrapped_horizontal_lines.append((rho, theta))
-    
-    wrapped_intersections = []
-    for vrho, vtheta in wrapped_vertical_lines:
-        for hrho, htheta in wrapped_horizontal_lines:
-            pt = compute_intersection(vrho, vtheta, hrho, htheta)
-            if pt is not None:
-                x, y = pt
-                if 0 <= x < warped.shape[1] and 0 <= y < warped.shape[0]:
-                    wrapped_intersections.append((x, y))
-
-    cluster_wrapped_pts = cluster_points(wrapped_intersections, threshold=param_states[1]["value"]) #40 - 90
-    secondary_clustering_data["cluster_threshold"] = param_states[1]["value"]
-    secondary_clustering_data["num_points"] = len(wrapped_intersections)
-    if secondary_clustering_data["num_points"] >= 2:
-        distances = pdist(np.array(wrapped_intersections))
-        secondary_clustering_data["mean_distance"] = np.mean(distances)
-        secondary_clustering_data["std_distance"] = np.std(distances)
-     # draw clusters
-    for pt in cluster_wrapped_pts:
-        cv2.circle(img4, pt, 4, (255, 0, 0), -1)
-    cv2.imshow("Warped Intersections", img4)
-    return cluster_wrapped_pts,img4
-
-if __name__ == "__main__":
-    image = cv2.imread('data/images/21.jpg') # board image path
-    exit = 0
-    exit1 = 0
-    exit2 = 0
-
-    while exit == 0:
-
-        while exit1 == 0:
-            src_points, primary_hough_training_data, primary_clustering_data = preprocess_image(image)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
-            decision = input("Is the board orientation correct? (y/n): ").strip().lower()
-            if decision == 'y':
-                cv2.destroyAllWindows()
-                break
-            cv2.destroyAllWindows()
-            param_states[2]["value"] = int(input(f"Enter Hough threshold (current: {param_states[2]['value']}): ") or param_states[2]["value"])
-            param_states[3]["value"] = int(input(f"Enter clustering threshold (current: {param_states[3]['value']}): ") or param_states[3]["value"])
-
-
-        board_size = 800
-        dst_points = np.float32([[10, 10], [board_size - 10, 10], [board_size - 10, board_size - 10], [10, board_size - 10]])
-        M = cv2.getPerspectiveTransform(src_points, dst_points)
-        warped = cv2.warpPerspective(image, M, (board_size, board_size)) 
-        cv2.imshow("Warped Board", warped)
-
-
-        # Second processing
-        cluster_wrapped_pts, img4 = secondary_processing(warped)
-        sorted_grid = sort_into_grid(cluster_wrapped_pts, rows=9, cols=9)
-        while exit2 == 0:
-            print("Sorted Grid Size:", len(sorted_grid), "x", len(sorted_grid[0]) if sorted_grid else 0)
-            cv2.imshow(f"Sorted Grid {len(sorted_grid)}x{len(sorted_grid[0]) if sorted_grid else 0}", img4)
-            cv2.waitKey(0)
-            decision = input("Does the grid look correct? (y/n): ").strip().lower()
-            if decision == 'y':
-                cv2.destroyAllWindows()
-                break
-            param_states[0]["value"] = int(input(f"Enter Hough threshold for secondary processing (current: {param_states[0]['value']}): ") or param_states[0]["value"])
-            param_states[1]["value"] = int(input(f"Enter clustering threshold for grid sorting (current: {param_states[1]['value']}): ") or param_states[1]["value"])
-            cv2.destroyAllWindows()
-            cluster_wrapped_pts, img4 = secondary_processing(warped)
-            sorted_grid = sort_into_grid(cluster_wrapped_pts, rows=9, cols=9)
-
-        print("Final Sorted Grid Size:", len(sorted_grid), "x", len(sorted_grid[0]) if sorted_grid else 0)
-        vis_squares = warped.copy()
-
-        for i in range(8):
-            for j in range(8):
-                # 4 corners of the square
-                tl = sorted_grid[i][j] 
-                tr = sorted_grid[i][j+1]
-                br = sorted_grid[i+1][j+1]
-                bl = sorted_grid[i+1][j]
-
-                # Draw square outline
-                pts = np.array([tl, tr, br, bl], np.int32).reshape((-1, 1, 2))
-                cv2.polylines(vis_squares, [pts], isClosed=True, color=(0, 255, 255), thickness=1)
-
-                # Add label at center
-                cx = int((tl[0] + br[0]) / 2)
-                cy = int((tl[1] + br[1]) / 2)
-                label = f"{chr(ord('A') + i)}{8-j}"
-                cv2.putText(vis_squares, label, (cx - 10, cy + 5), cv2.FONT_HERSHEY_SIMPLEX, 
-                            0.4, (0, 0, 255), 1, cv2.LINE_AA)
-
-        cv2.imshow("Squares Visualization", vis_squares)
-        cv2.waitKey(0)
-        decision = input("Does the grid look correct? (y/n): " ).strip().lower()
-        if decision == 'y':
-            exit1 = 1
-        cv2.destroyAllWindows()
-        
-        lastDecision = input("Is this final processing correct? (y/n): ").strip().lower()
-        if lastDecision == 'y':
-            exit = 1 
-    
-    with open('primary_hough_training.txt', 'a') as f:
-        f.write(f"{primary_hough_training_data['mean_intensity']}, {primary_hough_training_data['std_intensity']}, {primary_hough_training_data['edge_density']}, {primary_hough_training_data['gradient_mean']}, {primary_hough_training_data['gradient_std']}, {primary_hough_training_data['entropy']}, {primary_hough_training_data['aspect_ratio']}, {primary_hough_training_data['hough_threshold']}\n")
-    with open('primary_clustering_training.txt', 'a') as f:
-        f.write(f"{primary_clustering_data['num_points']}, {primary_clustering_data['mean_distance']}, {primary_clustering_data['std_distance']}, {primary_clustering_data['cluster_threshold']}\n")
-    with open('secondary_hough_training.txt', 'a') as f:
-        f.write(f"{secondary_hough_training_data['mean_intensity']}, {secondary_hough_training_data['std_intensity']}, {secondary_hough_training_data['edge_density']}, {secondary_hough_training_data['gradient_mean']}, {secondary_hough_training_data['gradient_std']}, {secondary_hough_training_data['entropy']}, {secondary_hough_training_data['aspect_ratio']}, {secondary_hough_training_data['hough_threshold']}\n")
-    with open('secondary_clustering_training.txt', 'a') as f:
-        f.write(f"{secondary_clustering_data['num_points']}, {secondary_clustering_data['mean_distance']}, {secondary_clustering_data['std_distance']}, {secondary_clustering_data['cluster_threshold']}\n")
+def save_extracted_images(sorted_grid, warped,dir):
 
     for i in range(8):
         for j in range(8):
@@ -378,8 +72,80 @@ if __name__ == "__main__":
             square_crop = cv2.warpPerspective(warped, M, (224, 224))
             square_crop = cv2.convertScaleAbs(square_crop,alpha=1.1,beta=10)
             file = f"{chr(ord('A') + i)}{8-j}"
-            
-            cv2.imwrite(f"dataset/{file}.jpg", square_crop)
+
+            cv2.imwrite(f"{dir}/{file}.jpg", square_crop)
+
+def save_threshold_data():
+    with open('primary_hough_training.txt', 'a') as f:
+        print(f"Writing to primary_hough_training.txt: {primary_hough_training_data}")
+        f.write(f"{primary_hough_training_data['mean_intensity']}, {primary_hough_training_data['std_intensity']}, {primary_hough_training_data['edge_density']}, {primary_hough_training_data['gradient_mean']}, {primary_hough_training_data['gradient_std']}, {primary_hough_training_data['entropy']}, {primary_hough_training_data['aspect_ratio']}, {primary_hough_training_data['hough_threshold']}\n")
+    with open('primary_clustering_training.txt', 'a') as f:
+        print(f"Writing to primary_clustering_training.txt: {primary_clustering_data}")
+        f.write(f"{primary_clustering_data['num_points']}, {primary_clustering_data['mean_distance']}, {primary_clustering_data['std_distance']}, {primary_clustering_data['cluster_threshold']}\n")
+    with open('secondary_hough_training.txt', 'a') as f:
+        print(f"Writing to secondary_hough_training.txt: {secondary_hough_training_data}")
+        f.write(f"{secondary_hough_training_data['mean_intensity']}, {secondary_hough_training_data['std_intensity']}, {secondary_hough_training_data['edge_density']}, {secondary_hough_training_data['gradient_mean']}, {secondary_hough_training_data['gradient_std']}, {secondary_hough_training_data['entropy']}, {secondary_hough_training_data['aspect_ratio']}, {secondary_hough_training_data['hough_threshold']}\n")
+    with open('secondary_clustering_training.txt', 'a') as f:
+        print(f"Writing to secondary_clustering_training.txt: {secondary_clustering_data}")
+        f.write(f"{secondary_clustering_data['num_points']}, {secondary_clustering_data['mean_distance']}, {secondary_clustering_data['std_distance']}, {secondary_clustering_data['cluster_threshold']}\n")
+
+if __name__ == "__main__":
+    image = cv2.imread('testing-images/15.jpg') # board image path
+    exit = 0
+    exit1 = 0
+    exit2 = 0
+
+    while exit == 0:
+
+        while exit1 == 0:
+            src_points, primary_hough_training_data, primary_clustering_data = preprocessor.preprocess_image(image,param_states[2]["value"], param_states[3]["value"])
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+            decision = input("Is the board orientation correct? (y/n): ").strip().lower()
+            if decision == 'y':
+                cv2.destroyAllWindows()
+                break
+            cv2.destroyAllWindows()
+            param_states[2]["value"] = int(input(f"Enter Hough threshold (current: {param_states[2]['value']}): ") or param_states[2]["value"])
+            param_states[3]["value"] = int(input(f"Enter clustering threshold (current: {param_states[3]['value']}): ") or param_states[3]["value"])
+
+        warped = preprocessor.warp_board_by_corners(src_points, image)
+
+        # Second processing
+        cluster_wrapped_pts, img4, secondary_hough_training_data, secondary_clustering_data = secondary_processor.secondary_processing(warped, param_states[0]["value"], param_states[1]["value"])
+        sorted_grid = secondary_processor.sort_into_grid(cluster_wrapped_pts, rows=9, cols=9)
+        while exit2 == 0:
+            print("Sorted Grid Size:", len(sorted_grid), "x", len(sorted_grid[0]) if sorted_grid else 0)
+            cv2.imshow(f"Sorted Grid {len(sorted_grid)}x{len(sorted_grid[0]) if sorted_grid else 0}", img4)
+            cv2.waitKey(0)
+            decision = input("Does the grid look correct? (y/n): ").strip().lower()
+            if decision == 'y':
+                cv2.destroyAllWindows()
+                break
+            param_states[0]["value"] = int(input(f"Enter Hough threshold for secondary processing (current: {param_states[0]['value']}): ") or param_states[0]["value"])
+            param_states[1]["value"] = int(input(f"Enter clustering threshold for grid sorting (current: {param_states[1]['value']}): ") or param_states[1]["value"])
+            cv2.destroyAllWindows()
+            cluster_wrapped_pts, img4, secondary_hough_training_data, secondary_clustering_data = secondary_processor.secondary_processing(warped, param_states[0]["value"], param_states[1]["value"])
+            sorted_grid = secondary_processor.sort_into_grid(cluster_wrapped_pts, rows=9, cols=9)
+
+        print("Final Sorted Grid Size:", len(sorted_grid), "x", len(sorted_grid[0]) if sorted_grid else 0)
+        vis_squares = warped.copy()
+
+        vis_squares = secondary_processor.visualize_grid(vis_squares, sorted_grid)
+        cv2.imshow("Squares Visualization", vis_squares)
+        cv2.waitKey(0)
+
+        decision = input("Does the grid look correct? (y/n): " ).strip().lower()
+        if decision == 'y':
+            exit1 = 1
+        cv2.destroyAllWindows()
+        
+        lastDecision = input("Is this final processing correct? (y/n): ").strip().lower()
+        if lastDecision == 'y':
+            exit = 1
+
+    save_threshold_data()
+    save_extracted_images(sorted_grid, warped, dir = "testing-images/extracted")
 
 
     print("Processing complete. Images saved.")
