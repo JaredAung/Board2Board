@@ -1,23 +1,50 @@
+"""
+Board2Board – Chessboard Recognition Pipeline
+Author: Jared Aung © 2025 All rights reserved.
+
+File: predict_board.py
+Description:
+------------
+This script processes an over-the-board chess image and converts it into a 
+Forsyth-Edwards Notation (FEN) string. The pipeline consists of:
+1. Detecting board edges & corners (Hough Transform + clustering).
+2. Warping the image to get a clean, top-down chessboard.
+3. Detecting and sorting the 9x9 intersection grid.
+4. Predicting pieces in each square using a trained CNN (ResNet-based).
+5. Constructing a FEN string for the board state.
+6. Allowing manual corrections of predictions.
+7. Saving the final predicted board as an SVG.
+
+Dependencies:
+-------------
+- OpenCV (cv2)
+- NumPy
+- scikit-learn (AgglomerativeClustering)
+- scikit-image (shannon_entropy)
+- SciPy (pdist)
+- Keras / TensorFlow
+- python-chess (board + SVG export)
+- Custom modules: `image_processor.preprocessor`, `image_processor.secondary_processor`
+"""
+
 import cv2
 import numpy as np
-from sklearn.cluster import AgglomerativeClustering
-from collections import defaultdict
-import os
-from skimage.measure import shannon_entropy
-from scipy.spatial.distance import pdist
-import joblib
 from keras.models import load_model
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from image_processor import preprocessor, secondary_processor
 import chess
 import chess.svg
 
+# -------------------- PARAMETER STATES --------------------
+# Stores adjustable thresholds for Hough Transform & clustering.
 param_states = [
-    {"name": "hough_threshold", "value": 0},  # Initial threshold for Hough Transform
-    {"name": "cluster_threshold", "value": 0},  # Initial threshold for clustering points
-    {"name": "primary_hough_threshold", "value": 0},  # Threshold for primary Hough lines
-    {"name": "primary_cluster_threshold", "value": 0},  # Threshold for primary clustering
+    {"name": "hough_threshold", "value": 0},             # Secondary Hough Transform
+    {"name": "cluster_threshold", "value": 0},           # Secondary clustering
+    {"name": "primary_hough_threshold", "value": 0},     # Primary Hough Transform
+    {"name": "primary_cluster_threshold", "value": 0},   # Primary clustering
 ]
+
+# Metrics/features collected during primary HoughLine processing.
 primary_hough_data = {
         "mean_intensity": 0.0,
         "std_intensity": 0.0,
@@ -31,6 +58,7 @@ primary_hough_data = {
         "hough_threshold": 0
     }
 
+# Metrics for clustering step in primary processing.
 primary_clustering_data = {
         "num_points": 0,
         "mean_distance": 0.0,
@@ -38,6 +66,7 @@ primary_clustering_data = {
         "cluster_threshold": 0
     }
 
+# Metrics/features collected during secondary Hough processing.
 secondary_hough_training_data = {
         "mean_intensity": 0.0,
         "std_intensity": 0.0,
@@ -51,6 +80,7 @@ secondary_hough_training_data = {
         "hough_threshold": 0
     }
 
+# Metrics for clustering step in secondary processing.
 secondary_clustering_data = {
         "num_points": 0,
         "mean_distance": 0.0,
@@ -58,7 +88,18 @@ secondary_clustering_data = {
         "cluster_threshold": 0
     }
 
+# Initialize an empty 8×8 grid for board representation.
+grid = [[0 for _ in range(8)] for _ in range(8)]
+
+# -------------------- CLASS LABEL MAPPING --------------------
 def show_class(class_index):
+    """
+    Maps CNN class indices (0–12) to chess piece FEN notation.
+
+    Lowercase = black pieces
+    Uppercase = white pieces
+    "1" = empty square
+    """
     match class_index:
         case 0:
             return "b"
@@ -87,55 +128,61 @@ def show_class(class_index):
         case 12:
             return "R"
 
-grid = [[0 for _ in range(8)] for _ in range(8)]
+# -------------------- PIECE PREDICTION --------------------
 def predict_and_build(sorted_grid, warped):
-    #fen = ""
-    ones = 0
+    """
+    Predicts the contents of each chessboard square using the trained CNN model.
+
+    Args:
+        sorted_grid: 9x9 array of intersection points (corners of squares).
+        warped: top-down warped chessboard image.
+
+    Returns:
+        grid: 8x8 matrix filled with predicted piece symbols.
+    """
+    
     piece_model = load_model('models/board2board.h5')
     for j in range(8):
         for i in range(8):
+            # Extract square by bounding box defined by 4 corners
             tl = sorted_grid[i][j]
-            tr = sorted_grid[i][j+1]
             br = sorted_grid[i+1][j+1]
-            bl = sorted_grid[i+1][j]
-
             square = warped[tl[1]:br[1], tl[0]:br[0]]
+
+            # Preprocess square for ResNet input
             square = cv2.resize(square, (224, 224))
             square = cv2.cvtColor(square, cv2.COLOR_BGR2RGB)
             square = preprocess_input(square)
             square = np.expand_dims(square, axis=0)
+
+            # Predict piece in square
             predict = piece_model.predict(square)
             predict_index = np.argmax(predict)
             predict_class = show_class(predict_index)
             grid[j][i] = predict_class
-            #confidence = np.max(predict)
-            #result += f"{chr(ord('A') + i)}{8-j}: {predict_class}, {confidence}\n"
-            # if predict_class == "1":
-            #     ones += 1
-            # else:
-            #     fen += f"{ones}" if ones > 0 else ""
-            #     ones = 0
-            #     fen += predict_class
-
-    #     if ones > 0:
-    #         fen += f"{ones}"
-    #         ones = 0
-    #     fen += "/"
-    # fen = fen[:-1] + " w KQkq - 0 1"
+            
     print("Grid:")
     for row in grid:
         print(row)
     return grid
 
+# -------------------- VISUALIZATION --------------------
 def visualize_predictions(warped, sorted_grid, grid):
+    """
+    Overlays predicted piece labels onto the warped chessboard image.
+
+    Args:
+        warped: warped chessboard image.
+        sorted_grid: 9x9 array of grid intersections.
+        grid: 8x8 predicted board matrix.
+    """
     vis_predicted = warped.copy()
     for i in range(8):
         for j in range(8):
             tl = sorted_grid[i][j]
-            tr = sorted_grid[i][j+1]
             br = sorted_grid[i+1][j+1]
-            bl = sorted_grid[i+1][j]
 
+            # Compute center of the square for label placement
             cx = int((tl[0] + br[0]) / 2)
             cy = int((tl[1] + br[1]) / 2)
             label = f"{f"{chr(ord('A') + i)}{8-j}"} = {grid[j][i]}"
@@ -145,7 +192,17 @@ def visualize_predictions(warped, sorted_grid, grid):
     cv2.imshow("Predicted Pieces", vis_predicted)
     cv2.waitKey(0)
 
-def build_fen(grid):
+# -------------------- FEN CONSTRUCTION --------------------
+def build_fen(grid) -> str:
+    """
+    Converts the predicted grid into a valid Forsyth-Edwards Notation (FEN) string.
+
+    Args:
+        grid: 8x8 board state matrix.
+
+    Returns:
+        fen: FEN string representation of the board.
+    """
     fen = ""
     ones = 0
     for j in range(8):
@@ -165,15 +222,20 @@ def build_fen(grid):
     fen = fen[:-1] + " w KQkq - 0 1"
     return fen
 
+# -------------------- MAIN SCRIPT --------------------
 if __name__ == "__main__":
-    filename = '15'
+    filename = '15' # File name 
     image = cv2.imread(f'testing-images/{filename}.jpg') # board image path
     exit = 0
     exit1 = 0
     exit2 = 0
 
+    # Interactive threshold tuning loop (primary + secondary processing)
+    # - Detect board orientation
+    # - Adjust Hough/clustering thresholds until grid looks correct
+    # - Warp the board for clean processing
+    # - Finalize sorted grid of intersection points
     while exit == 0:
-
         while exit1 == 0:
             src_points, primary_hough_data, primary_clustering_data = preprocessor.preprocess_image(image,param_states[2]["value"],param_states[3]["value"])
             param_states[2]["value"] = primary_hough_data["hough_threshold"]
@@ -187,16 +249,8 @@ if __name__ == "__main__":
             cv2.destroyAllWindows()
             param_states[2]["value"] = int(input(f"Enter Hough threshold (current: {param_states[2]['value']}): ") or param_states[2]["value"])
             param_states[3]["value"] = int(input(f"Enter clustering threshold (current: {param_states[3]['value']}): ") or param_states[3]["value"])
-        
-
-        # board_size = 800
-        # dst_points = np.float32([[10, 10], [board_size - 10, 10], [board_size - 10, board_size - 10], [10, board_size - 10]])
-        # M = cv2.getPerspectiveTransform(src_points, dst_points)
-        # warped = cv2.warpPerspective(image, M, (board_size, board_size)) 
-        # cv2.imshow("Warped Board", warped)
 
         warped = preprocessor.warp_board_by_corners(src_points, image)
-
 
         # Second processing
         cluster_wrapped_pts, img4, secondary_hough_training_data, secondary_clustering_data = secondary_processor.secondary_processing(warped,param_states[0]["value"],param_states[1]["value"])
@@ -234,10 +288,11 @@ if __name__ == "__main__":
         if lastDecision == 'y':
             exit = 1 
 
-
+    # Predict board state 
     grid = predict_and_build(sorted_grid, warped)
     visualize_predictions(warped, sorted_grid, grid)
 
+    # Manual correction
     while True:
         final_approval = input("Would you like to make any piece corrections? (y/n): ").strip().lower()
         if final_approval == 'n':
@@ -256,17 +311,19 @@ if __name__ == "__main__":
         grid[8 - int(position[1])][ord(position[0]) - ord('A')] = piece
         visualize_predictions(warped, sorted_grid, grid)
 
-    
+    # Convert grid to FEN
     fen = build_fen(grid)
     print(f"FEN: {fen}")
 
+    # Convert FEN to python-chess Board object
     final_board = chess.Board(fen)
     print(final_board)
     cv2.destroyAllWindows()
 
+    # Save final board as SVG
     chess_svg = chess.svg.board(final_board)
     with open(f"predicted/predicted_board_{filename}.svg", "w") as f:
         f.write(chess_svg)
         print(f"SVG file saved as predicted/predicted_board_{filename}.svg")
 
-## © 2025 All rights reserved. Jared Aung
+    print("Operation complete.")
