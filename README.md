@@ -12,7 +12,7 @@
 
 | Input Image | Output (SVG Board) |
 |-------------|---------------------|
-| ![Sample Input](images/sample_input.jpg) | ![Sample Output](images/sample_output.svg) |
+| <img src="testing-images/16.jpg" width="300"/> | <img src="testing-images/predicted_board_16.svg" width="300"/> |
 
 ---
 
