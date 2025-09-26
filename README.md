@@ -36,16 +36,24 @@ Several factors drive this trend:
 
 Clone the repository and install dependencies:  
 
-```bash
+```
+# Step 1: Clone and install dependencies
 git clone https://github.com/JaredAung/Board2Board.git
 cd Board2Board
 pip install -r requirements.txt
 
+# Step 2: Run a script
+python3 generate_training_data.py      # extract squares + log thresholds
+python3 classifier.py                  # run full pipeline + output FEN + SVG
+
+```
+
+- Run trainer.ipynb on Google Colab*
 ---
 
 ## Approach
 
-**Technology Stack:** OpenCV, Keras, Python, Scikit-Learn, ResNet50, Python-Chess, Scikit-Image, Tensorflow, SciPy, Joblib, Jupyter Notebook  
+**Technology Stack:** OpenCV, Keras, Python, Scikit-Learn, ResNet50, Python-Chess, Scikit-Image, Tensorflow, SciPy, Joblib, Jupyter Notebook, Split-Folders  
 
 **Computer Vision Pipeline Overview:**  
 1. **Preprocessing** – Apply OpenCV’s `GaussianBlur` for smoothing, `Canny` for edge detection, and `HoughLines` to detect lines.  
