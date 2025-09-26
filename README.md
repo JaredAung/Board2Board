@@ -1,7 +1,20 @@
 # Board2Board
 
-## Welcome to Board2Board
 **Board2Board** leverages Computer Vision and Deep Learning to convert a physical chessboard into Forsyth-Edwards Notation (FEN) with **94% accuracy**.  
+
+![Python](https://img.shields.io/badge/python-3.10-blue.svg)  
+![License](https://img.shields.io/badge/license-MIT-green.svg)  
+
+---
+
+## Demo  
+📷 Input (OTB Chessboard Photo) → ♟ Output (Digital FEN + SVG)  
+
+| Input Image | Output (SVG Board) |
+|-------------|---------------------|
+| ![Sample Input](images/sample_input.jpg) | ![Sample Output](images/sample_output.svg) |
+
+---
 
 FEN is a standardized, line-by-line description of a chessboard (piece + position), which can be fed into many existing platforms and services to recreate the board digitally. This allows over-the-board (OTB) chess positions to be seamlessly transferred into the online environment.
 
@@ -19,18 +32,33 @@ Several factors drive this trend:
 
 ---
 
+## Installation  
+
+Clone the repository and install dependencies:  
+
+```bash
+git clone https://github.com/JaredAung/Board2Board.git
+cd Board2Board
+pip install -r requirements.txt
+
+---
+
 ## Approach
 
 **Technology Stack:** OpenCV, Keras, Python, Scikit-Learn, ResNet50, Python-Chess, Scikit-Image, Tensorflow, SciPy, Joblib, Jupyter Notebook  
 
-The computer vision pipeline is a **reimagined and extended version** of an approach outlined in a [Medium article by <Author’s Name>]. Additional features were added for greater robustness and adaptability across varying lighting conditions and image qualities.  
-
-**Pipeline Overview:**  
+**Computer Vision Pipeline Overview:**  
 1. **Preprocessing** – Apply OpenCV’s `GaussianBlur` for smoothing, `Canny` for edge detection, and `HoughLines` to detect lines.  
 2. **Line Sorting** – Separate detected lines into vertical and horizontal categories.  
 3. **Intersection Detection** – Compute intersections between vertical and horizontal lines.  
 4. **Clustering** – Use Scikit-Learn’s Agglomerative Clustering to merge intersections within a given threshold, reducing noise and identifying true grid points.  
 
+**Deep Learning Pipeline Overview:**
+1. **Square Extraction** – Crop and warp each of the 64 squares into 224×224 images
+2. **ResNet50 Model** – Classify each square as one of 13 classes (12 piece types + empty)
+3. **Threshold Regression Models** – Predict optimal pipeline thresholds (Hough + clustering) using ML models trained on logged features
+4. **Prediction & Correction** – User validates grid detection thresholds, CNN predicts pieces, and manual corrections can be applied
+5. **Final Visualization** – Convert the final board state into Forsyth-Edwards Notation (FEN) and into the SVG of the converted digital board. 
 ---
 
 ## Issues & Fixes
