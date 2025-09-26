@@ -224,7 +224,7 @@ def build_fen(grid) -> str:
 
 # -------------------- MAIN SCRIPT --------------------
 if __name__ == "__main__":
-    filename = '15' # File name 
+    filename = '16' # File name 
     image = cv2.imread(f'testing-images/{filename}.jpg') # board image path
     exit = 0
     exit1 = 0
@@ -256,6 +256,7 @@ if __name__ == "__main__":
         cluster_wrapped_pts, img4, secondary_hough_training_data, secondary_clustering_data = secondary_processor.secondary_processing(warped,param_states[0]["value"],param_states[1]["value"])
         param_states[0]["value"] = secondary_hough_training_data["hough_threshold"]
         param_states[1]["value"] = secondary_clustering_data["cluster_threshold"]
+
         sorted_grid = secondary_processor.sort_into_grid(cluster_wrapped_pts, rows=9, cols=9)
         while exit2 == 0:
             print("Sorted Grid Size:", len(sorted_grid), "x", len(sorted_grid[0]) if sorted_grid else 0)

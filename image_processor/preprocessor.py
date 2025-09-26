@@ -161,7 +161,7 @@ def preprocess_image(image, primary_houghline, primary_clustering):
         ])
         primary_hough_model = joblib.load('models/primary_hough_pipeline.pkl')
         primary_houghline = int(primary_hough_model.predict([primary_hough_features])[0])
-        print(f"Predicted Primary Hough Threshold: {primary_houghline}")
+        print("Predicted Primary Hough threshold:", primary_houghline)
 
     # --- Detect Lines with Hough Transform ---
     lines = cv2.HoughLines(edges, 1, np.pi / 180, primary_houghline)
@@ -224,8 +224,8 @@ def preprocess_image(image, primary_houghline, primary_clustering):
         ])
         primary_clustering_model = joblib.load('models/primary_cluster_pipeline.pkl')
         primary_clustering = int(primary_clustering_model.predict([primary_clustering_features])[0])
-        print(f"Predicted Primary Clustering Threshold: {primary_clustering}")
         primary_clustering_data["cluster_threshold"] = primary_clustering
+        print("Predicted Primary Clustering threshold:", primary_clustering)
 
     # --- Cluster Intersections & Find Board Corners ---
     clustered_pts = cluster_points(intersections, threshold=primary_clustering)
@@ -236,7 +236,6 @@ def preprocess_image(image, primary_houghline, primary_clustering):
     for corner in src_points:
         cv2.circle(img3, tuple(map(int, corner)), 5, (0, 0, 255), -1)
     cv2.imshow("Board Corners", img3)
-
     return src_points, primary_hough_training_data, primary_clustering_data
 
 # -------------------- WARPING FUNCTION --------------------
